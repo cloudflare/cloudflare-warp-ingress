@@ -9,13 +9,27 @@ import (
 	"syscall"
 
 	"github.com/cloudflare/cloudflare-ingress-controller/internal/controller"
+	"github.com/cloudflare/cloudflare-ingress-controller/internal/tunnel"
 	"github.com/cloudflare/cloudflare-ingress-controller/internal/version"
 	"github.com/golang/glog"
 	"github.com/oklog/run"
+	log "github.com/sirupsen/logrus"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
+
+func init() {
+	flag.Set("logtostderr", "true")
+
+	// Log as JSON instead of the default text.
+	log.SetFormatter(&log.JSONFormatter{})
+
+	// Output to stdout instead of the default stderr
+	log.SetOutput(os.Stdout)
+
+	log.SetLevel(log.DebugLevel)
+}
 
 func main() {
 
@@ -68,6 +82,14 @@ func main() {
 			return nil
 		}, func(error) {
 			cancel()
+		})
+	}
+	{
+		stopCh := make(chan struct{})
+		g.Add(func() error {
+			return tunnel.ServeMetrics(9090, stopCh, log.StandardLogger())
+		}, func(error) {
+			close(stopCh)
 		})
 	}
 

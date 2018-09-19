@@ -2,6 +2,7 @@
 *.swo
 bin/
 .build/
+.cache/
 vendor/
 .vs/
 .vscode/

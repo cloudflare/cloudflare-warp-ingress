@@ -25,7 +25,7 @@ type ArgoTunnelManager struct {
 	stopCh       chan struct{}
 }
 
-func newHttpTransport() *http.Transport {
+func newHTTPTransport() *http.Transport {
 
 	tlsConfig := &tls.Config{}
 
@@ -46,18 +46,31 @@ func newHttpTransport() *http.Transport {
 	return httpTransport
 }
 
+// ArgoMetricsLabelKeys is the set of common metrics keys for argo tunnels
+func ArgoMetricsLabelKeys() []string {
+	return []string{AppKey, ServiceKey, HostnameKey}
+}
+
+// ArgoMetricLabelValues is the set of particular metrics values for one argo tunnel
+func ArgoMetricLabelValues(config Config) []string {
+	return []string{
+		"argot",
+		fmt.Sprintf("%s.%s", config.ServiceName, config.ServiceNamespace),
+		config.ExternalHostname,
+	}
+}
+
 // NewArgoTunnelManager is a wrapper around a argo tunnel running in a goroutine
 func NewArgoTunnelManager(config *Config, metricsSetup *MetricsConfig) (Tunnel, error) {
 
 	haConnections := 1
 
-	protocolLogger := log.New()
-
+	protocolLogger := log.StandardLogger()
 	tunnelLogger := log.WithFields(log.Fields{
 		"service": config.ServiceName,
 	}).Logger
 
-	httpTransport := newHttpTransport()
+	httpTransport := newHTTPTransport()
 	tlsConfig := &tls.Config{
 		RootCAs:    cloudflare.GetCloudflareRootCA(),
 		ServerName: "cftunnel.com",
@@ -104,6 +117,10 @@ func (mgr *ArgoTunnelManager) Config() Config {
 	return *mgr.config
 }
 
+// func (mgr *ArgoTunnelManager) Logger() *log.Logger {
+// 	return mgr.tunnelConfig.Logger
+// }
+
 func (mgr *ArgoTunnelManager) Active() bool {
 	return mgr.stopCh != nil
 }
@@ -118,8 +135,13 @@ func (mgr *ArgoTunnelManager) Start(serviceURL string) error {
 	placeHolderOnlyConnectedSignal := make(chan struct{})
 	mgr.stopCh = make(chan struct{})
 
+	metricsUpdater, err := origin.NewTunnelMetricsUpdater(mgr.tunnelConfig.Metrics, ArgoMetricLabelValues(mgr.Config()))
+	if err != nil {
+		return err
+	}
+
 	go func() {
-		mgr.errCh <- origin.StartTunnelDaemon(mgr.tunnelConfig, mgr.stopCh, placeHolderOnlyConnectedSignal)
+		mgr.errCh <- origin.StartTunnelDaemon(mgr.tunnelConfig, metricsUpdater, mgr.stopCh, placeHolderOnlyConnectedSignal)
 	}()
 	return nil
 }
